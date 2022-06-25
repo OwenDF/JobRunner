@@ -2,7 +2,7 @@
 
 using static Task;
 
-public class JobRunner<TInput>
+public class JobRunner<TInput> : IRunAsync
 {
     private readonly IProvideCompletableInputs<TInput> _inputs;
     private readonly IHandleInputs<TInput> _handler;
@@ -15,11 +15,9 @@ public class JobRunner<TInput>
         _maxConcurrentInputs = settings.MaxConcurrentInputs;
     }
 
-    public Task Run() => Run(CancellationToken.None);
-
     public async Task Run(CancellationToken stop)
     {
-        List<Job> jobs = new List<Job>();
+        var jobs = new List<Job>(_maxConcurrentInputs);
 
         while (!stop.IsCancellationRequested)
         {
@@ -42,26 +40,26 @@ public class JobRunner<TInput>
 
     private async Task<List<Job>> FinaliseCompletedJobs(List<Job> currentJobs)
     {
-        var jobs = currentJobs.Bifurcate(x => x.Running.IsCompleted);
+        var (left, right) = currentJobs.Bifurcate(x => x.Running.IsCompleted);
 
-        foreach (var completedJob in jobs.left)
+        foreach (var (running, input) in left)
         {
-            if (completedJob.Running.IsFaulted)
+            if (running.IsFaulted)
             {
-                await _inputs.HandleExceptionForInput(completedJob.Input, completedJob.Running.Exception!);
-                completedJob.Running.Dispose();
+                await _inputs.HandleExceptionForInput(input, running.Exception!);
+                running.Dispose();
 
             }
-            else if (completedJob.Running.IsCanceled)
+            else if (running.IsCanceled)
             {
-                await _inputs.HandleCanceledInput(completedJob.Input);
-                completedJob.Running.Dispose();
+                await _inputs.HandleCanceledInput(input);
+                running.Dispose();
             }
             else
-                await _inputs.CompleteInput(completedJob.Input);
+                await _inputs.CompleteInput(input);
         }
 
-        return jobs.right.ToList();
+        return right.ToList();
     }
 
     private async Task<List<Job>> FillWithJobs(List<Job> existingJobs, CancellationToken stop)

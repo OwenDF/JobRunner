@@ -13,3 +13,8 @@ public interface IHandleInputs<in TInput>
 {
     Task Handle(TInput input, CancellationToken stop);
 }
+
+public interface IRunAsync
+{
+    Task Run(CancellationToken stop);
+}
